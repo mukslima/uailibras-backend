@@ -2,57 +2,33 @@
 
 Backend do **UaiLibras**, plataforma voltada à divulgação de cursos, notícias, eventos e iniciativas relacionadas à **Libras, acessibilidade e comunidade surda**.
 
-A API foi desenvolvida com **Node.js, Fastify e TypeScript**, utilizando **PostgreSQL + Prisma ORM** para persistência de dados.
+A API foi desenvolvida com **Node.js, Fastify e TypeScript**, utilizando **PostgreSQL e Prisma ORM** para persistência de dados.
 
-O projeto possui autenticação, controle de acesso baseado em papéis (RBAC), gerenciamento de usuários, workflow editorial de notícias e armazenamento de imagens integrado ao Cloudinary.
-
----
+O projeto foi estruturado para atender autenticação, gerenciamento de usuários, controle de acesso, workflow editorial e gerenciamento de mídia.
 
 ## 🚀 Tecnologias
 
-- **Node.js**
-- **TypeScript**
-- **Fastify**
-- **PostgreSQL**
-- **Prisma ORM**
-- **Docker**
-- **JWT**
-- **Argon2id**
-- **Zod**
-- **Cloudinary**
-
----
+- Node.js
+- TypeScript
+- Fastify
+- PostgreSQL
+- Prisma ORM
+- Docker
+- JWT
+- Argon2id
+- Zod
+- Cloudinary
 
 ## 🏗️ Arquitetura
 
-O backend segue uma organização por responsabilidades, separando rotas, regras de negócio, validações, autenticação e acesso ao banco.
-
-```text
-src/
-├── config/
-├── plugins/
-├── routes/
-├── schemas/
-├── services/
-├── utils/
-├── lib/
-├── app.ts
-└── server.ts
-
-prisma/
-├── migrations/
-├── schema.prisma
-└── seed.ts
-```
-
-Fluxo simplificado:
+O backend utiliza separação de responsabilidades entre rotas, validações, regras de negócio, autenticação e persistência.
 
 ```text
 Client
   ↓
-Fastify Routes
+Fastify
   ↓
-Validation / Authentication / RBAC
+Validation / Authentication / Authorization
   ↓
 Services
   ↓
@@ -61,411 +37,94 @@ Prisma ORM
 PostgreSQL
 ```
 
-Para mídias:
+O gerenciamento de arquivos utiliza uma camada de abstração de storage, mantendo as regras de negócio desacopladas do provedor externo.
 
-```text
-Media API
-   ↓
-StorageService
-   ↓
-Cloudinary
-```
+## 🔐 Autenticação e Segurança
 
-O PostgreSQL mantém os metadados da mídia, enquanto os arquivos são armazenados externamente.
+A API possui uma camada própria de autenticação e autorização.
 
----
+Entre os recursos implementados estão:
 
-## 🔐 Autenticação
+- autenticação baseada em tokens;
+- renovação segura de sessão;
+- armazenamento seguro de senhas com Argon2id;
+- controle de acesso baseado em papéis (RBAC);
+- validação de dados de entrada;
+- sanitização de conteúdo;
+- proteção das rotas administrativas;
+- validação segura de uploads.
 
-A autenticação utiliza dois tipos de token:
+Credenciais e informações sensíveis são configuradas exclusivamente através de variáveis de ambiente.
 
-### Access Token
+## 👥 Controle de Acesso
 
-JWT de curta duração utilizado para autenticar requisições protegidas.
+O sistema trabalha com diferentes níveis de acesso:
 
-```text
-Default: 15 minutos
-```
+- **Administrador**
+- **Autor**
+- **Revisor**
 
-### Refresh Token
-
-Token opaco e aleatório utilizado para renovar sessões.
-
-O refresh token:
-
-- não é JWT;
-- é armazenado no banco apenas como hash SHA-256;
-- possui expiração;
-- pode ser revogado;
-- utiliza rotação durante a renovação;
-- é enviado através de cookie `HttpOnly`.
-
-O cookie também utiliza:
-
-```text
-HttpOnly
-SameSite=Lax
-Secure em produção
-```
-
-As senhas são armazenadas utilizando **Argon2id**.
-
----
-
-## 👥 Controle de acesso — RBAC
-
-O sistema possui três papéis:
-
-```text
-ADMIN
-AUTHOR
-REVIEWER
-```
-
-### ADMIN
-
-Responsável pela administração da plataforma.
-
-Pode gerenciar usuários, conteúdo e recursos administrativos respeitando as regras do workflow editorial.
-
-### AUTHOR
-
-Responsável pela criação e edição de conteúdo.
-
-Pode:
-
-- criar notícias;
-- editar suas próprias notícias;
-- trabalhar com rascunhos;
-- enviar conteúdo para revisão;
-- realizar upload de imagens.
-
-### REVIEWER
-
-Responsável pelo processo editorial.
-
-Pode:
-
-- analisar notícias enviadas;
-- aprovar conteúdo;
-- rejeitar conteúdo;
-- registrar comentários de revisão;
-- publicar conteúdo aprovado.
-
-O `REVIEWER` não edita diretamente o conteúdo do autor.
-
----
+As permissões são validadas no backend e utilizadas para separar responsabilidades administrativas e editoriais.
 
 ## 📰 Workflow Editorial
 
-Notícias possuem um fluxo de publicação controlado pelo backend:
+O backend possui um domínio editorial para gerenciamento do ciclo de vida das notícias.
 
 ```text
-DRAFT
+Criação
    ↓
-IN_REVIEW
-   ├── REJECTED
-   │      ↓
-   │    DRAFT / nova revisão
-   │
-   └── APPROVED
-          ↓
-       PUBLISHED
-          ↓
-       ARCHIVED
+Rascunho
+   ↓
+Revisão
+   ↓
+Aprovação / Correção
+   ↓
+Publicação
 ```
 
-As transições não podem ser realizadas alterando diretamente o campo `status`.
+O workflow mantém separação entre autoria e revisão, histórico editorial e controle das transições de estado.
 
-Cada ação possui regras próprias de autorização e endpoints específicos.
+Além das notícias, o domínio suporta:
 
----
-
-## 🛡️ Separação entre autoria e revisão
-
-Uma regra importante do domínio editorial é:
-
-> **Ninguém pode aprovar, rejeitar ou publicar a própria notícia.**
-
-Essa regra também se aplica ao `ADMIN`.
-
-Dessa forma, mesmo usuários administrativos precisam que outra pessoa participe do processo editorial antes da publicação.
-
-Rejeições também exigem comentário do revisor.
-
-O histórico das revisões é preservado para permitir múltiplos ciclos de correção e aprovação.
-
----
-
-## 🏷️ Categorias e Tags
-
-Uma notícia pode possuir múltiplas categorias.
-
-Uma delas é definida como **categoria principal**, utilizada para destaque visual e classificação principal do conteúdo.
-
-Categorias iniciais:
-
-```text
-Curso
-Audiência
-Evento
-Festival
-```
-
-Também é possível associar múltiplas tags às notícias.
-
-Categorias e tags utilizam slugs normalizados para facilitar consultas e integração com o frontend.
-
----
+- múltiplas categorias;
+- categoria principal;
+- tags;
+- histórico de revisão;
+- gerenciamento de mídia;
+- arquivamento de conteúdo.
 
 ## 🖼️ Gerenciamento de Mídia
 
-As imagens são armazenadas no **Cloudinary** através de uma abstração interna:
+As imagens são armazenadas utilizando **Cloudinary**, enquanto seus metadados permanecem associados ao conteúdo no PostgreSQL.
+
+A integração é realizada através de uma abstração própria de storage:
 
 ```text
-StorageService
-      ↓
-CloudinaryStorageService
+Media Service
+     ↓
+Storage Abstraction
+     ↓
+Cloudinary
 ```
 
-Isso evita acoplamento direto entre as regras de negócio e o provedor de armazenamento.
+Essa abordagem reduz o acoplamento da aplicação ao provedor externo.
 
-Os arquivos são organizados utilizando identificadores gerados pelo backend:
-
-```text
-uailibras/news/YYYY-MM-DD/uuid
-```
-
-O PostgreSQL mantém informações como:
-
-```text
-storageKey / publicId
-secure URL
-nome original
-MIME type
-tamanho
-dimensões
-usuário responsável
-data de criação
-```
-
----
-
-## 🔒 Segurança de Upload
-
-Uploads não confiam apenas na extensão ou no `Content-Type` enviado pelo cliente.
-
-O backend verifica o tipo real do arquivo.
-
-Atualmente são permitidos:
-
-```text
-image/jpeg
-image/png
-image/webp
-```
-
-Limite:
-
-```text
-10 MB
-```
-
-Arquivos como SVG, HTML e executáveis não são aceitos.
-
-O conteúdo rich text das notícias também passa por sanitização antes de ser persistido.
-
----
-
-## 🌐 API
-
-A API utiliza versionamento:
-
-```text
-/api/v1
-```
-
-### Autenticação
-
-```http
-POST /api/v1/auth/login
-POST /api/v1/auth/refresh
-POST /api/v1/auth/logout
-GET  /api/v1/auth/me
-```
-
-### Usuários
-
-```http
-POST  /api/v1/users
-GET   /api/v1/users
-GET   /api/v1/users/:id
-PATCH /api/v1/users/:id
-```
-
-### Notícias públicas
-
-```http
-GET /api/v1/news
-GET /api/v1/news/:slug
-```
-
-A API pública retorna somente conteúdo com status:
-
-```text
-PUBLISHED
-```
-
-### Administração de notícias
-
-```http
-POST  /api/v1/news
-GET   /api/v1/admin/news
-GET   /api/v1/admin/news/:id
-PATCH /api/v1/news/:id
-
-POST /api/v1/news/:id/submit
-POST /api/v1/news/:id/reject
-POST /api/v1/news/:id/approve
-POST /api/v1/news/:id/publish
-POST /api/v1/news/:id/archive
-```
-
-### Categorias
-
-```http
-GET   /api/v1/categories
-POST  /api/v1/categories
-PATCH /api/v1/categories/:id
-```
-
-### Tags
-
-```http
-GET  /api/v1/tags
-POST /api/v1/tags
-```
-
-### Mídia
-
-```http
-POST   /api/v1/media
-DELETE /api/v1/media/:id
-```
-
----
+O upload também possui validações de formato, tamanho e conteúdo antes do armazenamento.
 
 ## 🗄️ Banco de Dados
 
 O projeto utiliza **PostgreSQL** com **Prisma ORM**.
 
-O ambiente local pode ser executado através de Docker.
+O desenvolvimento local utiliza PostgreSQL através de Docker, com volume persistente para preservar os dados entre execuções.
 
-Entre as principais entidades estão:
+A evolução do banco é controlada através de migrations versionadas.
 
-```text
-User
-RefreshToken
+## 🐳 Ambiente de Desenvolvimento
 
-News
-NewsReview
-
-Category
-Tag
-
-Media
-
-NewsCategory
-NewsTag
-NewsMedia
-```
-
-As alterações de estrutura do banco são controladas através de **Prisma Migrations**.
-
----
-
-## 🌱 Seed
-
-O projeto possui seed idempotente para criação do primeiro administrador e dados iniciais.
-
-As credenciais do administrador são fornecidas exclusivamente através de variáveis de ambiente.
-
-```env
-SEED_ADMIN_USERNAME=
-SEED_ADMIN_NAME=
-SEED_ADMIN_EMAIL=
-SEED_ADMIN_PASSWORD=
-```
-
-O seed também garante as categorias editoriais iniciais.
-
-```bash
-npx prisma db seed
-```
-
-Executá-lo novamente não deve duplicar os registros existentes.
-
----
-
-## ⚙️ Variáveis de Ambiente
-
-Crie um arquivo `.env` baseado no `.env.example`.
-
-Exemplo:
-
-```env
-DATABASE_URL=""
-
-JWT_ACCESS_SECRET=""
-JWT_ACCESS_EXPIRES_IN="15m"
-
-JWT_REFRESH_EXPIRES_IN="7d"
-
-SEED_ADMIN_USERNAME=""
-SEED_ADMIN_NAME=""
-SEED_ADMIN_EMAIL=""
-SEED_ADMIN_PASSWORD=""
-
-CLOUDINARY_CLOUD_NAME=""
-CLOUDINARY_API_KEY=""
-CLOUDINARY_API_SECRET=""
-```
-
-> Nunca versione credenciais reais ou secrets.
-
----
-
-## 🐳 PostgreSQL com Docker
-
-Suba o ambiente local:
+Suba o PostgreSQL:
 
 ```bash
 docker compose up -d
-```
-
-Confira os containers:
-
-```bash
-docker compose ps
-```
-
-Para interromper:
-
-```bash
-docker compose stop
-```
-
-Os dados permanecem persistidos através do volume configurado no Docker.
-
----
-
-## 💻 Executando Localmente
-
-Clone o repositório:
-
-```bash
-git clone https://github.com/mukslima/uailibras-backend.git
-cd uailibras-backend
 ```
 
 Instale as dependências:
@@ -474,10 +133,10 @@ Instale as dependências:
 npm install
 ```
 
-Configure:
+Configure o ambiente utilizando:
 
 ```text
-.env
+.env.example
 ```
 
 Gere o Prisma Client:
@@ -492,163 +151,89 @@ Aplique as migrations:
 npx prisma migrate deploy
 ```
 
-Execute o seed:
+Inicie a aplicação:
 
 ```bash
-npx prisma db seed
+npm run dev
 ```
-
-Inicie o projeto conforme os scripts disponíveis no `package.json`.
-
----
 
 ## ❤️ Health Check
 
-A API possui endpoint para verificação básica da aplicação:
+A API possui um endpoint de health check para validação básica da aplicação.
 
-```http
+```text
 GET /health
 ```
 
-Resposta esperada:
-
-```json
-{
-  "status": "ok"
-}
-```
-
----
-
 ## 🧪 Testes e Qualidade
 
-O projeto possui testes automatizados cobrindo áreas como:
+O projeto possui testes automatizados para as principais regras da aplicação, incluindo:
 
 - autenticação;
-- login;
-- refresh token;
-- logout;
-- RBAC;
+- autorização e RBAC;
 - gerenciamento de usuários;
 - workflow editorial;
-- regras de autoria/revisão;
-- categorias;
-- tags;
-- visibilidade pública;
+- regras de autoria e revisão;
+- categorias e tags;
+- visibilidade de conteúdo;
 - validação de uploads;
-- integração da camada de storage através de fake/mock.
+- camada de armazenamento.
 
-Execute:
+Comandos principais:
 
 ```bash
 npm test
-```
-
-Typecheck:
-
-```bash
 npm run typecheck
-```
-
-Build:
-
-```bash
 npm run build
-```
-
-Validação do Prisma:
-
-```bash
 npx prisma validate
 ```
 
----
+## ☁️ Serviços Externos
 
-## ☁️ Cloudinary
+O projeto utiliza **Cloudinary** para armazenamento e entrega de imagens.
 
-A integração com Cloudinary ocorre exclusivamente no backend.
+A integração ocorre exclusivamente através do backend, sem exposição de credenciais ao cliente.
 
-Credenciais nunca são enviadas ao frontend.
+Os testes automatizados utilizam abstrações locais/fakes para evitar dependência de serviços externos durante a execução da suíte.
 
-O fluxo é:
+## 🔗 Frontend
 
-```text
-Frontend
-   ↓
-UaiLibras API
-   ↓
-Validação do arquivo
-   ↓
-StorageService
-   ↓
-Cloudinary
-   ↓
-PostgreSQL (metadados)
-```
+O frontend do UaiLibras é mantido em um repositório independente e desenvolvido com:
 
-Os testes automatizados utilizam uma implementação fake do storage e não dependem de credenciais externas.
+- Next.js
+- React
+- TypeScript
 
-A integração real também foi validada com upload, consulta da URL pública e exclusão controlada do recurso.
-
----
-
-## 📦 Frontend
-
-O frontend é mantido separadamente:
-
-```text
-uailibras-frontend
-```
-
-Stack:
-
-```text
-Next.js
-React
-TypeScript
-```
-
-A comunicação entre os projetos será realizada através da API REST.
-
----
+A comunicação entre frontend e backend é realizada através de uma API REST.
 
 ## 🗺️ Roadmap
 
-### ✅ Concluído
+### ✅ Implementado
 
-- [x] Estrutura base com Fastify + TypeScript
-- [x] PostgreSQL
-- [x] Prisma ORM
-- [x] Docker para desenvolvimento local
-- [x] Migrations
-- [x] Seed
+- [x] Estrutura base da API
+- [x] PostgreSQL + Prisma ORM
+- [x] Ambiente Docker
+- [x] Migrations e seed
 - [x] Autenticação
-- [x] Access Token
-- [x] Refresh Token com rotação
-- [x] Argon2id
-- [x] RBAC
+- [x] Controle de acesso (RBAC)
 - [x] Gerenciamento de usuários
-- [x] Domínio editorial
-- [x] Workflow de revisão
+- [x] Workflow editorial
 - [x] Categorias e tags
-- [x] Upload seguro de imagens
-- [x] Cloudinary
+- [x] Gerenciamento de imagens
+- [x] Integração com Cloudinary
 - [x] Testes automatizados
 
 ### 🚧 Próximas etapas
 
 - [ ] Integração com painel administrativo
-- [ ] Integração completa com frontend público
+- [ ] Integração com frontend público
 - [ ] Testes end-to-end
 - [ ] Hardening de segurança
-- [ ] Tratamento final de erros
 - [ ] Configuração de produção
 - [ ] Deploy do backend
 - [ ] Documentação da API
 
----
-
-## 👨‍💻 Autor
+## 👨‍💻 Desenvolvimento
 
 Desenvolvido e mantido por **Marcos AND Lima**.
 
