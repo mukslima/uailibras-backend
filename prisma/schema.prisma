@@ -12,17 +12,36 @@ enum UserRole {
   REVIEWER
 }
 
+enum NewsStatus {
+  DRAFT
+  IN_REVIEW
+  REJECTED
+  APPROVED
+  PUBLISHED
+  ARCHIVED
+}
+
+enum NewsReviewAction {
+  APPROVED
+  REJECTED
+}
+
 model User {
-  id            String         @id @default(uuid()) @db.Uuid
-  username      String         @unique @db.VarChar(40)
-  name          String         @db.VarChar(120)
-  email         String         @unique @db.VarChar(255)
-  passwordHash  String
-  role          UserRole
-  active        Boolean        @default(true)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  refreshTokens RefreshToken[]
+  id             String         @id @default(uuid()) @db.Uuid
+  username       String         @unique @db.VarChar(40)
+  name           String         @db.VarChar(120)
+  email          String         @unique @db.VarChar(255)
+  passwordHash   String
+  role           UserRole
+  active         Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  refreshTokens  RefreshToken[]
+  authoredNews   News[]         @relation("NewsAuthor")
+  approvedNews   News[]         @relation("NewsApprover")
+  publishedNews  News[]         @relation("NewsPublisher")
+  reviews        NewsReview[]
+  uploadedMedia  Media[]
 
   @@index([role])
   @@map("users")
@@ -41,4 +60,129 @@ model RefreshToken {
   @@index([userId])
   @@index([expiresAt])
   @@map("refresh_tokens")
+}
+
+model Category {
+  id          String         @id @default(uuid()) @db.Uuid
+  name        String         @db.VarChar(80)
+  slug        String         @unique @db.VarChar(100)
+  active      Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  primaryNews News[]         @relation("NewsPrimaryCategory")
+  news        NewsCategory[]
+
+  @@index([active])
+  @@map("categories")
+}
+
+model Tag {
+  id        String    @id @default(uuid()) @db.Uuid
+  name      String    @db.VarChar(80)
+  slug      String    @unique @db.VarChar(100)
+  createdAt DateTime  @default(now())
+  news      NewsTag[]
+
+  @@map("tags")
+}
+
+model Media {
+  id             String      @id @default(uuid()) @db.Uuid
+  storageKey     String      @unique @db.VarChar(255)
+  url            String      @db.VarChar(2048)
+  originalName   String      @db.VarChar(255)
+  mimeType       String      @db.VarChar(100)
+  size           Int
+  width          Int?
+  height         Int?
+  uploadedById   String      @db.Uuid
+  createdAt      DateTime    @default(now())
+  uploadedBy     User        @relation(fields: [uploadedById], references: [id], onDelete: Restrict)
+  coverForNews   News[]      @relation("NewsCoverImage")
+  internalInNews NewsMedia[]
+
+  @@index([uploadedById])
+  @@map("media")
+}
+
+model News {
+  id                String         @id @default(uuid()) @db.Uuid
+  title             String         @db.VarChar(180)
+  slug              String         @unique @db.VarChar(220)
+  summary           String         @db.VarChar(320)
+  content           String
+  status            NewsStatus     @default(DRAFT)
+  authorId          String         @db.Uuid
+  approvedById      String?        @db.Uuid
+  publishedById     String?        @db.Uuid
+  primaryCategoryId String?        @db.Uuid
+  coverImageId      String?        @db.Uuid
+  publishedAt       DateTime?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  author            User           @relation("NewsAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  approvedBy        User?          @relation("NewsApprover", fields: [approvedById], references: [id], onDelete: SetNull)
+  publishedBy       User?          @relation("NewsPublisher", fields: [publishedById], references: [id], onDelete: SetNull)
+  primaryCategory   Category?      @relation("NewsPrimaryCategory", fields: [primaryCategoryId], references: [id], onDelete: Restrict)
+  coverImage        Media?         @relation("NewsCoverImage", fields: [coverImageId], references: [id], onDelete: SetNull)
+  categories        NewsCategory[]
+  tags              NewsTag[]
+  media             NewsMedia[]
+  reviews           NewsReview[]
+
+  @@index([status, publishedAt])
+  @@index([authorId])
+  @@index([primaryCategoryId])
+  @@map("news")
+}
+
+model NewsCategory {
+  newsId     String   @db.Uuid
+  categoryId String   @db.Uuid
+  createdAt  DateTime @default(now())
+  news       News     @relation(fields: [newsId], references: [id], onDelete: Cascade)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@id([newsId, categoryId])
+  @@index([categoryId])
+  @@map("news_categories")
+}
+
+model NewsTag {
+  newsId    String   @db.Uuid
+  tagId     String   @db.Uuid
+  createdAt DateTime @default(now())
+  news      News     @relation(fields: [newsId], references: [id], onDelete: Cascade)
+  tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([newsId, tagId])
+  @@index([tagId])
+  @@map("news_tags")
+}
+
+model NewsMedia {
+  newsId    String   @db.Uuid
+  mediaId   String   @db.Uuid
+  createdAt DateTime @default(now())
+  news      News     @relation(fields: [newsId], references: [id], onDelete: Cascade)
+  media     Media    @relation(fields: [mediaId], references: [id], onDelete: Restrict)
+
+  @@id([newsId, mediaId])
+  @@index([mediaId])
+  @@map("news_media")
+}
+
+model NewsReview {
+  id         String           @id @default(uuid()) @db.Uuid
+  newsId     String           @db.Uuid
+  reviewerId String           @db.Uuid
+  action     NewsReviewAction
+  comment    String?
+  createdAt  DateTime         @default(now())
+  news       News             @relation(fields: [newsId], references: [id], onDelete: Cascade)
+  reviewer   User             @relation(fields: [reviewerId], references: [id], onDelete: Restrict)
+
+  @@index([newsId, createdAt])
+  @@index([reviewerId])
+  @@map("news_reviews")
 }

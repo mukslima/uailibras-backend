@@ -1,7 +1,7 @@
 import "dotenv/config";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "@prisma/client";
-import { normalizeEmail, normalizeUsername } from "../src/utils/normalize";
+import { normalizeEmail, normalizeSlug, normalizeUsername } from "../src/utils/normalize";
 import { hashPassword } from "../src/utils/password";
 
 const requiredVariables = [
@@ -29,6 +29,7 @@ const prisma = new PrismaClient({
 async function main() {
   const username = normalizeUsername(process.env.SEED_ADMIN_USERNAME!);
   const email = normalizeEmail(process.env.SEED_ADMIN_EMAIL!);
+  const initialCategories = ["Curso", "Audiência", "Evento", "Festival"];
 
   const existingAdmin = await prisma.user.findFirst({
     where: {
@@ -39,21 +40,39 @@ async function main() {
 
   if (existingAdmin) {
     console.log("Seed ADMIN already exists. Skipping creation.");
-    return;
+  } else {
+    await prisma.user.create({
+      data: {
+        username,
+        name: process.env.SEED_ADMIN_NAME!.trim(),
+        email,
+        passwordHash: await hashPassword(process.env.SEED_ADMIN_PASSWORD!),
+        role: "ADMIN",
+        active: true,
+      },
+    });
+
+    console.log("Seed ADMIN created.");
   }
 
-  await prisma.user.create({
-    data: {
-      username,
-      name: process.env.SEED_ADMIN_NAME!.trim(),
-      email,
-      passwordHash: await hashPassword(process.env.SEED_ADMIN_PASSWORD!),
-      role: "ADMIN",
-      active: true,
-    },
-  });
+  for (const name of initialCategories) {
+    await prisma.category.upsert({
+      where: {
+        slug: normalizeSlug(name),
+      },
+      update: {
+        name,
+        active: true,
+      },
+      create: {
+        name,
+        slug: normalizeSlug(name),
+        active: true,
+      },
+    });
+  }
 
-  console.log("Seed ADMIN created.");
+  console.log("Initial categories ensured.");
 }
 
 main()
