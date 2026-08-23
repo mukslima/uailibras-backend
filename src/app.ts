@@ -1,8 +1,10 @@
 import Fastify, { type FastifyError } from "fastify";
 import cookie from "@fastify/cookie";
+import cors from "@fastify/cors";
 import jwt from "@fastify/jwt";
 import multipart from "@fastify/multipart";
 import { getJwtAccessSecret } from "./config/auth";
+import { getCorsOptions } from "./config/cors";
 import { authRoutes } from "./routes/auth";
 import { categoryRoutes } from "./routes/categories";
 import { mediaRoutes } from "./routes/media";
@@ -16,6 +18,7 @@ export function buildApp() {
     logger: true,
   });
 
+  app.register(cors, getCorsOptions());
   app.register(cookie);
   app.register(jwt, {
     secret: getJwtAccessSecret(),
