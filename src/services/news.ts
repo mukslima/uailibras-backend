@@ -18,6 +18,7 @@ type NewsWriteInput = {
   tags?: string[];
   coverImageId?: string | null;
   mediaIds?: string[];
+  requestedFeaturedPosition?: 1 | 2 | null;
 };
 
 type CreateNewsInput = Required<Pick<NewsWriteInput, "title" | "summary" | "content" | "primaryCategoryId">> &
@@ -201,6 +202,96 @@ function assertCanReview(user: EditorialUser, authorId: string) {
   }
 }
 
+type FeaturePosition = 1 | 2 | null;
+type NewsTransaction = Prisma.TransactionClient;
+
+async function applyFeaturedPosition(tx: NewsTransaction, newsId: string, featuredPosition: FeaturePosition) {
+  if (featuredPosition === null) {
+    await tx.news.update({
+      where: { id: newsId },
+      data: { featuredPosition: null },
+    });
+    return;
+  }
+
+  const occupied = await tx.news.findMany({
+    where: {
+      featuredPosition: featuredPosition === 1 ? { in: [1, 2, 3] } : { in: [2, 3] },
+      NOT: {
+        id: newsId,
+      },
+    },
+    select: {
+      id: true,
+      featuredPosition: true,
+    },
+  });
+
+  await tx.news.updateMany({
+    where: {
+      OR: [
+        { id: newsId },
+        {
+          id: {
+            in: occupied.map((news) => news.id),
+          },
+        },
+      ],
+    },
+    data: {
+      featuredPosition: null,
+    },
+  });
+
+  if (featuredPosition === 1) {
+    const currentOne = occupied.find((news) => news.featuredPosition === 1);
+    const currentTwo = occupied.find((news) => news.featuredPosition === 2);
+
+    if (currentTwo) {
+      await tx.news.update({ where: { id: currentTwo.id }, data: { featuredPosition: 3 } });
+    }
+
+    if (currentOne) {
+      await tx.news.update({ where: { id: currentOne.id }, data: { featuredPosition: 2 } });
+    }
+  }
+
+  if (featuredPosition === 2) {
+    const currentTwo = occupied.find((news) => news.featuredPosition === 2);
+
+    if (currentTwo) {
+      await tx.news.update({ where: { id: currentTwo.id }, data: { featuredPosition: 3 } });
+    }
+  }
+
+  await tx.news.update({
+    where: { id: newsId },
+    data: { featuredPosition },
+  });
+}
+
+async function runFeaturedTransaction<T>(operation: (tx: NewsTransaction) => Promise<T>) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await prisma.$transaction(operation, {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      });
+    } catch (error) {
+      if (
+        attempt < 2 &&
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        (error.code === "P2002" || error.code === "P2034")
+      ) {
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
+  throw Object.assign(new Error("Could not apply featured position"), { statusCode: 409 });
+}
+
 export async function createNews(input: CreateNewsInput, user: EditorialUser) {
   if (!["ADMIN", "AUTHOR"].includes(user.role)) {
     throw forbidden();
@@ -218,6 +309,7 @@ export async function createNews(input: CreateNewsInput, user: EditorialUser) {
         authorId: user.id,
         primaryCategoryId: input.primaryCategoryId,
         coverImageId: input.coverImageId ?? undefined,
+        requestedFeaturedPosition: input.requestedFeaturedPosition ?? null,
         categories: {
           create: relations.categoryIds!.map((categoryId) => ({
             categoryId,
@@ -300,6 +392,7 @@ export async function updateNews(id: string, input: NewsWriteInput, user: Editor
           content: input.content ? sanitizeRichText(input.content) : undefined,
           primaryCategoryId: input.primaryCategoryId,
           coverImageId: input.coverImageId,
+          requestedFeaturedPosition: input.requestedFeaturedPosition,
           approvedById: existing.status === "REJECTED" ? null : undefined,
         },
         include: newsInclude,
@@ -405,7 +498,7 @@ export async function approveNews(id: string, comment: string | undefined, user:
   });
 }
 
-export async function publishNews(id: string, user: EditorialUser) {
+export async function publishNews(id: string, user: EditorialUser, featuredPosition: FeaturePosition = null) {
   const news = await getNewsOrThrow(id);
   assertCanReview(user, news.authorId);
 
@@ -413,14 +506,41 @@ export async function publishNews(id: string, user: EditorialUser) {
     throw invalidTransition("Only approved news can be published");
   }
 
-  return prisma.news.update({
-    where: { id },
-    data: {
-      status: "PUBLISHED",
-      publishedById: user.id,
-      publishedAt: new Date(),
-    },
-    include: newsInclude,
+  return runFeaturedTransaction(async (tx) => {
+    await tx.news.update({
+      where: { id },
+      data: {
+        status: "PUBLISHED",
+        publishedById: user.id,
+        publishedAt: new Date(),
+        featuredPosition: null,
+      },
+    });
+
+    await applyFeaturedPosition(tx, id, featuredPosition);
+
+    return tx.news.findUniqueOrThrow({
+      where: { id },
+      include: newsInclude,
+    });
+  });
+}
+
+export async function featureNews(id: string, featuredPosition: FeaturePosition, user: EditorialUser) {
+  const news = await getNewsOrThrow(id);
+  assertCanReview(user, news.authorId);
+
+  if (news.status !== "PUBLISHED") {
+    throw invalidTransition("Only published news can be featured");
+  }
+
+  return runFeaturedTransaction(async (tx) => {
+    await applyFeaturedPosition(tx, id, featuredPosition);
+
+    return tx.news.findUniqueOrThrow({
+      where: { id },
+      include: newsInclude,
+    });
   });
 }
 
@@ -439,6 +559,7 @@ export async function archiveNews(id: string, user: EditorialUser) {
     where: { id },
     data: {
       status: "ARCHIVED",
+      featuredPosition: null,
     },
     include: newsInclude,
   });

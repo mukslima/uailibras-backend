@@ -117,6 +117,8 @@ model News {
   publishedById     String?        @db.Uuid
   primaryCategoryId String?        @db.Uuid
   coverImageId      String?        @db.Uuid
+  requestedFeaturedPosition Int?
+  featuredPosition  Int?
   publishedAt       DateTime?
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
@@ -131,6 +133,7 @@ model News {
   reviews           NewsReview[]
 
   @@index([status, publishedAt])
+  @@index([featuredPosition])
   @@index([authorId])
   @@index([primaryCategoryId])
   @@map("news")

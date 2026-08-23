@@ -2,6 +2,10 @@ import { z } from "zod";
 
 const uuidArraySchema = z.array(z.uuid()).default([]);
 const tagNameArraySchema = z.array(z.string().trim().min(2).max(80)).default([]);
+const requestedFeaturedPositionSchema = z.union([z.literal(1), z.literal(2), z.null()]).optional();
+export const featureNewsSchema = z.object({
+  featuredPosition: z.union([z.literal(1), z.literal(2), z.null()]),
+});
 
 export const createNewsSchema = z.object({
   title: z.string().trim().min(3).max(180),
@@ -14,6 +18,7 @@ export const createNewsSchema = z.object({
   tags: tagNameArraySchema.optional(),
   coverImageId: z.uuid().optional(),
   mediaIds: uuidArraySchema.optional(),
+  requestedFeaturedPosition: requestedFeaturedPositionSchema,
 });
 
 export const updateNewsSchema = z
@@ -28,6 +33,7 @@ export const updateNewsSchema = z
     tags: tagNameArraySchema.optional(),
     coverImageId: z.uuid().nullable().optional(),
     mediaIds: uuidArraySchema.optional(),
+    requestedFeaturedPosition: requestedFeaturedPositionSchema,
   })
   .refine((value) => Object.keys(value).length > 0, "At least one field is required");
 

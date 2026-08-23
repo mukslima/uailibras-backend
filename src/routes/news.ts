@@ -5,6 +5,7 @@ import { uuidParamSchema } from "../schemas/common";
 import {
   adminNewsQuerySchema,
   createNewsSchema,
+  featureNewsSchema,
   publicNewsQuerySchema,
   rejectNewsSchema,
   reviewCommentSchema,
@@ -14,6 +15,7 @@ import {
   approveNews,
   archiveNews,
   createNews,
+  featureNews,
   getAdminNewsById,
   getPublicNewsBySlug,
   listAdminNews,
@@ -91,13 +93,21 @@ export async function newsRoutes(app: FastifyInstance) {
 
   app.post("/news/:id/publish", { preHandler: requireRole(["ADMIN", "REVIEWER"]) }, async (request) => {
     const params = parseBody(uuidParamSchema, request.params);
+    const body = parseBody(featureNewsSchema.partial(), request.body ?? {});
 
-    return publishNews(params.id, request.currentUser!);
+    return publishNews(params.id, request.currentUser!, body.featuredPosition ?? null);
   });
 
   app.post("/news/:id/archive", { preHandler: requireAuth }, async (request) => {
     const params = parseBody(uuidParamSchema, request.params);
 
     return archiveNews(params.id, request.currentUser!);
+  });
+
+  app.post("/news/:id/feature", { preHandler: requireRole(["ADMIN", "REVIEWER"]) }, async (request) => {
+    const params = parseBody(uuidParamSchema, request.params);
+    const body = parseBody(featureNewsSchema, request.body);
+
+    return featureNews(params.id, body.featuredPosition, request.currentUser!);
   });
 }
