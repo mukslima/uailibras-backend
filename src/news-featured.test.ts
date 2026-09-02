@@ -15,9 +15,11 @@ let categoryId = "";
 let author: User;
 let reviewer: User;
 let adminAuthor: User;
+let adminPublisher: User;
 let authorToken = "";
 let reviewerToken = "";
 let adminAuthorToken = "";
+let adminPublisherToken = "";
 
 const password = "password1234";
 const testEmailDomain = "@featured.test";
@@ -184,9 +186,11 @@ before(async () => {
   author = await createTestUser("AUTHOR", "author");
   reviewer = await createTestUser("REVIEWER", "reviewer");
   adminAuthor = await createTestUser("ADMIN", "admin-author");
+  adminPublisher = await createTestUser("ADMIN", "admin-publisher");
   authorToken = await loginAs(author.email);
   reviewerToken = await loginAs(reviewer.email);
   adminAuthorToken = await loginAs(adminAuthor.email);
+  adminPublisherToken = await loginAs(adminPublisher.email);
 });
 
 after(async () => {
@@ -278,12 +282,213 @@ test("featured news rotation and permissions", async (t) => {
     const response = await app.inject({
       method: "POST",
       url: `/api/v1/news/${news.id}/archive`,
-      headers: authHeader(authorToken),
+      headers: authHeader(reviewerToken),
     });
 
     assert.equal(response.statusCode, 200);
     assert.equal(response.json().status, "ARCHIVED");
     assert.equal(response.json().featuredPosition, null);
+  });
+
+  await t.test("unpublishing removes news from public API and republication as normal restores it without featured position", async () => {
+    await cleanup();
+    const news = await createPublishedNews("unpublish-normal", 1);
+
+    const visibleBefore = await app.inject({
+      method: "GET",
+      url: `/api/v1/news/${news.slug}`,
+    });
+    assert.equal(visibleBefore.statusCode, 200);
+
+    const unpublished = await app.inject({
+      method: "POST",
+      url: `/api/v1/news/${news.id}/archive`,
+      headers: authHeader(reviewerToken),
+    });
+
+    assert.equal(unpublished.statusCode, 200);
+    assert.equal(unpublished.json().status, "ARCHIVED");
+    assert.equal(unpublished.json().featuredPosition, null);
+
+    const hiddenDetail = await app.inject({
+      method: "GET",
+      url: `/api/v1/news/${news.slug}`,
+    });
+    assert.equal(hiddenDetail.statusCode, 404);
+
+    const hiddenList = await app.inject({
+      method: "GET",
+      url: "/api/v1/news",
+    });
+    assert.equal(hiddenList.statusCode, 200);
+    assert.equal(hiddenList.json().items.some((item: { id: string }) => item.id === news.id), false);
+
+    const republished = await app.inject({
+      method: "POST",
+      url: `/api/v1/news/${news.id}/publish`,
+      headers: authHeader(reviewerToken),
+      payload: {
+        featuredPosition: null,
+      },
+    });
+
+    assert.equal(republished.statusCode, 200);
+    assert.equal(republished.json().status, "PUBLISHED");
+    assert.equal(republished.json().featuredPosition, null);
+    assert.equal(republished.json().publishedById, reviewer.id);
+    assert.ok(republished.json().publishedAt);
+
+    const visibleAgain = await app.inject({
+      method: "GET",
+      url: `/api/v1/news/${news.slug}`,
+    });
+    assert.equal(visibleAgain.statusCode, 200);
+    assert.equal(visibleAgain.json().id, news.id);
+    assert.equal(visibleAgain.json().featuredPosition, null);
+  });
+
+  await t.test("republication as main and secondary uses the existing featured rotation", async () => {
+    await cleanup();
+    const mainA = await createPublishedNews("repub-main-a", 1);
+    const mainB = await createPublishedNews("repub-main-b", 2);
+    const mainC = await createPublishedNews("repub-main-c", 3);
+    const mainArchived = await createPublishedNews("repub-main-target", null);
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/news/${mainArchived.id}/archive`,
+      headers: authHeader(reviewerToken),
+    });
+
+    const mainResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/news/${mainArchived.id}/publish`,
+      headers: authHeader(reviewerToken),
+      payload: {
+        featuredPosition: 1,
+      },
+    });
+
+    assert.equal(mainResponse.statusCode, 200);
+    let positions = await getPositions([mainA.id, mainB.id, mainC.id, mainArchived.id]);
+    assert.equal(positions.get(mainArchived.id), 1);
+    assert.equal(positions.get(mainA.id), 2);
+    assert.equal(positions.get(mainB.id), 3);
+    assert.equal(positions.get(mainC.id), null);
+    await assertUniqueFeaturedPositions();
+
+    await cleanup();
+    const secondaryA = await createPublishedNews("repub-secondary-a", 1);
+    const secondaryB = await createPublishedNews("repub-secondary-b", 2);
+    const secondaryC = await createPublishedNews("repub-secondary-c", 3);
+    const secondaryArchived = await createPublishedNews("repub-secondary-target", null);
+
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/news/${secondaryArchived.id}/archive`,
+      headers: authHeader(reviewerToken),
+    });
+
+    const secondaryResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/news/${secondaryArchived.id}/publish`,
+      headers: authHeader(reviewerToken),
+      payload: {
+        featuredPosition: 2,
+      },
+    });
+
+    assert.equal(secondaryResponse.statusCode, 200);
+    positions = await getPositions([secondaryA.id, secondaryB.id, secondaryC.id, secondaryArchived.id]);
+    assert.equal(positions.get(secondaryA.id), 1);
+    assert.equal(positions.get(secondaryArchived.id), 2);
+    assert.equal(positions.get(secondaryB.id), 3);
+    assert.equal(positions.get(secondaryC.id), null);
+    await assertUniqueFeaturedPositions();
+  });
+
+  await t.test("unpublish and republish enforce editorial permissions and valid statuses", async () => {
+    await cleanup();
+    const published = await createPublishedNews("workflow-permissions", null);
+
+    const authorUnpublish = await app.inject({
+      method: "POST",
+      url: `/api/v1/news/${published.id}/archive`,
+      headers: authHeader(authorToken),
+    });
+    assert.equal(authorUnpublish.statusCode, 403);
+
+    const ownAdminPublished = await prisma.news.create({
+      data: {
+        title: "Featured Test Own Admin Published",
+        slug: `${testSlugPrefix}-own-admin-published`,
+        summary: "Resumo completo da noticia own admin.",
+        content: "<p>Conteudo completo da noticia own admin.</p>",
+        status: "PUBLISHED",
+        authorId: adminAuthor.id,
+        primaryCategoryId: categoryId,
+        publishedById: reviewer.id,
+        publishedAt: new Date(),
+        categories: {
+          create: {
+            categoryId,
+          },
+        },
+      },
+    });
+
+    const ownAdminUnpublish = await app.inject({
+      method: "POST",
+      url: `/api/v1/news/${ownAdminPublished.id}/archive`,
+      headers: authHeader(adminAuthorToken),
+    });
+    assert.equal(ownAdminUnpublish.statusCode, 403);
+
+    const invalidUnpublish = await app.inject({
+      method: "POST",
+      url: `/api/v1/news/${(await createApprovedNews("invalid-unpublish")).id}/archive`,
+      headers: authHeader(reviewerToken),
+    });
+    assert.equal(invalidUnpublish.statusCode, 409);
+
+    const unpublished = await app.inject({
+      method: "POST",
+      url: `/api/v1/news/${published.id}/archive`,
+      headers: authHeader(adminPublisherToken),
+    });
+    assert.equal(unpublished.statusCode, 200);
+    assert.equal(unpublished.json().status, "ARCHIVED");
+
+    const authorRepublish = await app.inject({
+      method: "POST",
+      url: `/api/v1/news/${published.id}/publish`,
+      headers: authHeader(authorToken),
+      payload: {
+        featuredPosition: null,
+      },
+    });
+    assert.equal(authorRepublish.statusCode, 403);
+
+    const invalidRepublish = await app.inject({
+      method: "POST",
+      url: `/api/v1/news/${ownAdminPublished.id}/publish`,
+      headers: authHeader(reviewerToken),
+      payload: {
+        featuredPosition: null,
+      },
+    });
+    assert.equal(invalidRepublish.statusCode, 409);
+
+    const reviewerRepublish = await app.inject({
+      method: "POST",
+      url: `/api/v1/news/${published.id}/publish`,
+      headers: authHeader(reviewerToken),
+      payload: {
+        featuredPosition: null,
+      },
+    });
+    assert.equal(reviewerRepublish.statusCode, 200);
+    assert.equal(reviewerRepublish.json().status, "PUBLISHED");
   });
 
   await t.test("only authorized non-authors can publish or promote featured news", async () => {
@@ -311,6 +516,19 @@ test("featured news rotation and permissions", async (t) => {
     });
 
     assert.equal(adminPublishOwn.statusCode, 403);
+
+    const adminPublishOther = await app.inject({
+      method: "POST",
+      url: `/api/v1/news/${approved.id}/publish`,
+      headers: authHeader(adminPublisherToken),
+      payload: {
+        featuredPosition: null,
+      },
+    });
+
+    assert.equal(adminPublishOther.statusCode, 200);
+    assert.equal(adminPublishOther.json().status, "PUBLISHED");
+    assert.equal(adminPublishOther.json().publishedById, adminPublisher.id);
 
     const published = await createPublishedNews("permissions-published", null);
     const authorFeature = await app.inject({

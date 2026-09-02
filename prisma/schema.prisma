@@ -120,6 +120,7 @@ model News {
   requestedFeaturedPosition Int?
   featuredPosition  Int?
   publishedAt       DateTime?
+  revisionOfId      String?        @db.Uuid
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
   author            User           @relation("NewsAuthor", fields: [authorId], references: [id], onDelete: Restrict)
@@ -127,6 +128,8 @@ model News {
   publishedBy       User?          @relation("NewsPublisher", fields: [publishedById], references: [id], onDelete: SetNull)
   primaryCategory   Category?      @relation("NewsPrimaryCategory", fields: [primaryCategoryId], references: [id], onDelete: Restrict)
   coverImage        Media?         @relation("NewsCoverImage", fields: [coverImageId], references: [id], onDelete: SetNull)
+  revisionOf        News?          @relation("NewsRevision", fields: [revisionOfId], references: [id], onDelete: SetNull)
+  revisions         News[]         @relation("NewsRevision")
   categories        NewsCategory[]
   tags              NewsTag[]
   media             NewsMedia[]
@@ -135,6 +138,7 @@ model News {
   @@index([status, publishedAt])
   @@index([featuredPosition])
   @@index([authorId])
+  @@index([revisionOfId])
   @@index([primaryCategoryId])
   @@map("news")
 }

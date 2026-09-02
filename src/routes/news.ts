@@ -14,6 +14,7 @@ import {
 import {
   approveNews,
   archiveNews,
+  createPublishedNewsRevision,
   createNews,
   featureNews,
   getAdminNewsById,
@@ -71,6 +72,12 @@ export async function newsRoutes(app: FastifyInstance) {
     return updateNews(params.id, body, request.currentUser!);
   });
 
+  app.post("/news/:id/revision", { preHandler: requireRole(["ADMIN", "AUTHOR"]) }, async (request) => {
+    const params = parseBody(uuidParamSchema, request.params);
+
+    return createPublishedNewsRevision(params.id, request.currentUser!);
+  });
+
   app.post("/news/:id/submit", { preHandler: requireAuth }, async (request) => {
     const params = parseBody(uuidParamSchema, request.params);
 
@@ -98,7 +105,7 @@ export async function newsRoutes(app: FastifyInstance) {
     return publishNews(params.id, request.currentUser!, body.featuredPosition ?? null);
   });
 
-  app.post("/news/:id/archive", { preHandler: requireAuth }, async (request) => {
+  app.post("/news/:id/archive", { preHandler: requireRole(["ADMIN", "REVIEWER"]) }, async (request) => {
     const params = parseBody(uuidParamSchema, request.params);
 
     return archiveNews(params.id, request.currentUser!);

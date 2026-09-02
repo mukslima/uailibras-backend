@@ -521,10 +521,114 @@ test("editorial news workflow, visibility, taxonomy, and media upload", async (t
 
     assert.equal(detail.statusCode, 200);
     assert.equal(detail.json().id, newsId);
+    assert.equal(detail.json().content.includes("Conteudo republicado com seguranca"), false);
     assert.equal(detail.json().author.email, undefined);
     assert.equal(detail.json().author.passwordHash, undefined);
     assert.equal(detail.json().coverImage?.storageKey, undefined);
     assert.equal(detail.json().reviews, undefined);
+
+    const revision = await app.inject({
+      method: "POST",
+      url: `/api/v1/news/${newsId}/revision`,
+      headers: authHeader(authorToken),
+    });
+
+    assert.equal(revision.statusCode, 200);
+    assert.equal(revision.json().status, "DRAFT");
+    assert.equal(revision.json().revisionOfId, newsId);
+    assert.notEqual(revision.json().id, newsId);
+
+    const publicBeforeRepublish = await app.inject({
+      method: "GET",
+      url: "/api/v1/news/news-test-festival-libras",
+    });
+
+    assert.equal(publicBeforeRepublish.statusCode, 200);
+    assert.equal(publicBeforeRepublish.json().content.includes("Conteudo republicado com seguranca"), false);
+
+    const directPublishedPatch = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/news/${newsId}`,
+      headers: authHeader(adminToken),
+      payload: {
+        summary: "Tentativa direta antes de republicar.",
+      },
+    });
+
+    assert.equal(directPublishedPatch.statusCode, 409);
+
+    const editRevision = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/news/${revision.json().id}`,
+      headers: authHeader(authorToken),
+      payload: {
+        content:
+          '<p class="text-align-center">Conteudo republicado com seguranca.</p><img src="https://cdn.test/uailibras/news/image-a.png" alt="Imagem A" class="image-size-small image-align-right" onerror="alert(1)"><p>Texto contorna a primeira imagem.</p><img src="https://cdn.test/uailibras/news/image-b.png" alt="Imagem B" class="image-size-medium image-align-left"><img src="https://cdn.test/uailibras/news/image-c.png" alt="Imagem C" class="image-size-large image-align-center bad-class">',
+      },
+    });
+
+    assert.equal(editRevision.statusCode, 200);
+    assert.equal(editRevision.json().content.includes("text-align-center"), true);
+    assert.equal(editRevision.json().content.includes("image-size-small"), true);
+    assert.equal(editRevision.json().content.includes("image-align-right"), true);
+    assert.equal(editRevision.json().content.includes("image-size-medium"), true);
+    assert.equal(editRevision.json().content.includes("image-align-left"), true);
+    assert.equal(editRevision.json().content.includes("image-size-large"), true);
+    assert.equal(editRevision.json().content.includes("image-align-center"), true);
+    assert.equal(editRevision.json().content.includes("bad-class"), false);
+    assert.equal(editRevision.json().content.includes("onerror"), false);
+
+    const submitRevision = await app.inject({
+      method: "POST",
+      url: `/api/v1/news/${revision.json().id}/submit`,
+      headers: authHeader(authorToken),
+    });
+
+    assert.equal(submitRevision.statusCode, 200);
+    assert.equal(submitRevision.json().status, "IN_REVIEW");
+
+    const approveRevision = await app.inject({
+      method: "POST",
+      url: `/api/v1/news/${revision.json().id}/approve`,
+      headers: authHeader(reviewerToken),
+      payload: {
+        comment: "Republicacao aprovada.",
+      },
+    });
+
+    assert.equal(approveRevision.statusCode, 200);
+    assert.equal(approveRevision.json().status, "APPROVED");
+
+    const republish = await app.inject({
+      method: "POST",
+      url: `/api/v1/news/${revision.json().id}/publish`,
+      headers: authHeader(reviewerToken),
+      payload: {
+        featuredPosition: null,
+      },
+    });
+
+    assert.equal(republish.statusCode, 200);
+    assert.equal(republish.json().id, newsId);
+    assert.equal(republish.json().status, "PUBLISHED");
+    assert.equal(republish.json().content.includes("Conteudo republicado com seguranca"), true);
+
+    const revisionAfterPublish = await prisma.news.findUniqueOrThrow({
+      where: {
+        id: revision.json().id,
+      },
+    });
+
+    assert.equal(revisionAfterPublish.status, "ARCHIVED");
+
+    const publicAfterRepublish = await app.inject({
+      method: "GET",
+      url: "/api/v1/news/news-test-festival-libras",
+    });
+
+    assert.equal(publicAfterRepublish.statusCode, 200);
+    assert.equal(publicAfterRepublish.json().id, newsId);
+    assert.equal(publicAfterRepublish.json().content.includes("Conteudo republicado com seguranca"), true);
 
     const archive = await app.inject({
       method: "POST",

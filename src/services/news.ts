@@ -168,6 +168,10 @@ function normalizeNewsSlug(title: string, slug?: string) {
   return normalized;
 }
 
+function buildRevisionSlug(slug: string) {
+  return `${slug}-revisao-${Date.now()}`;
+}
+
 async function ensureActiveCategories(categoryIds: string[]) {
   const categories = await prisma.category.findMany({
     where: {
@@ -466,6 +470,83 @@ export async function updateNews(id: string, input: NewsWriteInput, user: Editor
   }
 }
 
+export async function createPublishedNewsRevision(id: string, user: EditorialUser) {
+  const existing = await prisma.news.findUnique({
+    where: { id },
+    include: {
+      categories: true,
+      tags: true,
+      media: true,
+    },
+  });
+
+  if (!existing) {
+    throw notFound();
+  }
+
+  if (existing.status !== "PUBLISHED") {
+    throw invalidTransition("Only published news can start a revision cycle");
+  }
+
+  if (user.role === "REVIEWER") {
+    throw forbidden();
+  }
+
+  if (user.role === "AUTHOR" && existing.authorId !== user.id) {
+    throw forbidden();
+  }
+
+  const openRevision = await prisma.news.findFirst({
+    where: {
+      revisionOfId: id,
+      status: {
+        in: ["DRAFT", "REJECTED", "IN_REVIEW", "APPROVED"],
+      },
+    },
+    include: newsInclude,
+  });
+
+  if (openRevision) {
+    return openRevision;
+  }
+
+  try {
+    return await prisma.news.create({
+      data: {
+        title: existing.title,
+        slug: buildRevisionSlug(existing.slug),
+        summary: existing.summary,
+        content: existing.content,
+        status: "DRAFT",
+        authorId: existing.authorId,
+        primaryCategoryId: existing.primaryCategoryId,
+        coverImageId: existing.coverImageId,
+        requestedFeaturedPosition:
+          existing.featuredPosition === 1 || existing.featuredPosition === 2 ? existing.featuredPosition : existing.requestedFeaturedPosition,
+        revisionOfId: existing.id,
+        categories: {
+          create: existing.categories.map((item) => ({
+            categoryId: item.categoryId,
+          })),
+        },
+        tags: {
+          create: existing.tags.map((item) => ({
+            tagId: item.tagId,
+          })),
+        },
+        media: {
+          create: existing.media.map((item) => ({
+            mediaId: item.mediaId,
+          })),
+        },
+      },
+      include: newsInclude,
+    });
+  } catch (error) {
+    handleNewsWriteError(error);
+  }
+}
+
 export async function submitNews(id: string, user: EditorialUser) {
   const news = await getNewsOrThrow(id);
 
@@ -565,8 +646,84 @@ export async function publishNews(id: string, user: EditorialUser, featuredPosit
   const news = await getNewsOrThrow(id);
   assertCanReview(user, news.authorId);
 
-  if (news.status !== "APPROVED") {
-    throw invalidTransition("Only approved news can be published");
+  if (news.status !== "APPROVED" && news.status !== "ARCHIVED") {
+    throw invalidTransition("Only approved or unpublished news can be published");
+  }
+
+  if (news.status === "ARCHIVED" && news.revisionOfId) {
+    throw invalidTransition("Archived revisions cannot be republished directly");
+  }
+
+  if (news.revisionOfId) {
+    return runFeaturedTransaction(async (tx) => {
+      const revision = await tx.news.findUniqueOrThrow({
+        where: { id },
+        include: {
+          categories: true,
+          tags: true,
+          media: true,
+        },
+      });
+
+      const original = await tx.news.findUnique({
+        where: { id: revision.revisionOfId! },
+      });
+
+      if (!original || original.status !== "PUBLISHED") {
+        throw invalidTransition("Original published news is not available for republication");
+      }
+
+      await tx.newsCategory.deleteMany({ where: { newsId: original.id } });
+      await tx.newsCategory.createMany({
+        data: revision.categories.map((item) => ({ newsId: original.id, categoryId: item.categoryId })),
+        skipDuplicates: true,
+      });
+
+      await tx.newsTag.deleteMany({ where: { newsId: original.id } });
+      await tx.newsTag.createMany({
+        data: revision.tags.map((item) => ({ newsId: original.id, tagId: item.tagId })),
+        skipDuplicates: true,
+      });
+
+      await tx.newsMedia.deleteMany({ where: { newsId: original.id } });
+      await tx.newsMedia.createMany({
+        data: revision.media.map((item) => ({ newsId: original.id, mediaId: item.mediaId })),
+        skipDuplicates: true,
+      });
+
+      await tx.news.update({
+        where: { id: original.id },
+        data: {
+          title: revision.title,
+          summary: revision.summary,
+          content: revision.content,
+          primaryCategoryId: revision.primaryCategoryId,
+          coverImageId: revision.coverImageId,
+          requestedFeaturedPosition: revision.requestedFeaturedPosition,
+          approvedById: revision.approvedById,
+          publishedById: user.id,
+          publishedAt: new Date(),
+          featuredPosition: null,
+        },
+      });
+
+      await tx.news.update({
+        where: { id },
+        data: {
+          status: "ARCHIVED",
+          featuredPosition: null,
+          publishedById: user.id,
+          publishedAt: new Date(),
+        },
+      });
+
+      await applyFeaturedPosition(tx, original.id, featuredPosition);
+
+      return tx.news.findUniqueOrThrow({
+        where: { id: original.id },
+        include: newsInclude,
+      });
+    });
   }
 
   return runFeaturedTransaction(async (tx) => {
@@ -609,13 +766,10 @@ export async function featureNews(id: string, featuredPosition: FeaturePosition,
 
 export async function archiveNews(id: string, user: EditorialUser) {
   const news = await getNewsOrThrow(id);
+  assertCanReview(user, news.authorId);
 
-  if (user.role !== "ADMIN" && news.authorId !== user.id) {
-    throw forbidden();
-  }
-
-  if (user.role === "AUTHOR" && news.status !== "PUBLISHED") {
-    throw invalidTransition("Authors can archive only published news");
+  if (news.status !== "PUBLISHED") {
+    throw invalidTransition("Only published news can be unpublished");
   }
 
   return prisma.news.update({
