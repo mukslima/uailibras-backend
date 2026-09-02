@@ -15,7 +15,25 @@ import { maxUploadSize } from "./services/media";
 
 export function buildApp() {
   const app = Fastify({
-    logger: true,
+    logger: {
+      redact: [
+        "req.headers.authorization",
+        "req.headers.cookie",
+        "res.headers.set-cookie",
+        "*.password",
+        "*.passwordHash",
+        "*.token",
+        "*.accessToken",
+        "*.refreshToken",
+      ],
+    },
+  });
+
+  app.addHook("onRequest", async (_request, reply) => {
+    reply.header("X-Content-Type-Options", "nosniff");
+    reply.header("Referrer-Policy", "strict-origin-when-cross-origin");
+    reply.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+    reply.header("X-Frame-Options", "DENY");
   });
 
   app.register(cors, getCorsOptions());
@@ -55,8 +73,12 @@ export function buildApp() {
     prefix: "/api/v1",
   });
 
-  app.setErrorHandler((error: FastifyError, _request, reply) => {
+  app.setErrorHandler((error: FastifyError, request, reply) => {
     const statusCode = error.statusCode && error.statusCode >= 400 ? error.statusCode : 500;
+
+    if (statusCode >= 500) {
+      request.log.error({ err: error }, "Unhandled request error");
+    }
 
     reply.code(statusCode).send({
       message: statusCode === 500 ? "Internal server error" : error.message,

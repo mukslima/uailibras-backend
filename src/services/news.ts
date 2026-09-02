@@ -79,6 +79,61 @@ const newsInclude = {
   },
 } satisfies Prisma.NewsInclude;
 
+const publicNewsSelect = {
+  id: true,
+  title: true,
+  slug: true,
+  summary: true,
+  content: true,
+  featuredPosition: true,
+  publishedAt: true,
+  author: {
+    select: {
+      id: true,
+      username: true,
+      name: true,
+    },
+  },
+  primaryCategory: {
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+    },
+  },
+  coverImage: {
+    select: {
+      id: true,
+      url: true,
+      originalName: true,
+      width: true,
+      height: true,
+    },
+  },
+  categories: {
+    select: {
+      category: {
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+        },
+      },
+    },
+  },
+  tags: {
+    select: {
+      tag: {
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+        },
+      },
+    },
+  },
+} satisfies Prisma.NewsSelect;
+
 function forbidden() {
   return Object.assign(new Error("Forbidden"), { statusCode: 403 });
 }
@@ -93,6 +148,10 @@ function notFound() {
 
 function editableByAuthor(status: NewsStatus) {
   return status === "DRAFT" || status === "REJECTED";
+}
+
+function editableByAdmin(status: NewsStatus) {
+  return !["PUBLISHED", "ARCHIVED"].includes(status);
 }
 
 function normalizeUnique(values: string[] | undefined) {
@@ -352,6 +411,10 @@ export async function updateNews(id: string, input: NewsWriteInput, user: Editor
     throw invalidTransition("News cannot be edited in the current status");
   }
 
+  if (user.role === "ADMIN" && !editableByAdmin(existing.status)) {
+    throw invalidTransition("News cannot be edited in the current status");
+  }
+
   const relations = await buildRelations({
     ...input,
     primaryCategoryId: input.primaryCategoryId ?? (input.categoryIds ? existing.primaryCategoryId ?? undefined : undefined),
@@ -608,7 +671,7 @@ export async function listPublicNews(input: ListPublicNewsInput) {
       },
       skip: (input.page - 1) * input.pageSize,
       take: input.pageSize,
-      include: newsInclude,
+      select: publicNewsSelect,
     }),
     prisma.news.count({ where }),
   ]);
@@ -630,7 +693,7 @@ export async function getPublicNewsBySlug(slug: string) {
       slug,
       status: "PUBLISHED",
     },
-    include: newsInclude,
+    select: publicNewsSelect,
   });
 
   if (!news) {
@@ -682,6 +745,10 @@ export async function getAdminNewsById(id: string, user: EditorialUser) {
   }
 
   if (user.role === "AUTHOR" && news.authorId !== user.id) {
+    throw forbidden();
+  }
+
+  if (user.role === "REVIEWER" && news.status === "DRAFT") {
     throw forbidden();
   }
 

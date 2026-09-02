@@ -1,5 +1,11 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
-import { REFRESH_TOKEN_COOKIE_NAME, getRefreshTokenExpiresIn, isProduction } from "../config/auth";
+import {
+  REFRESH_TOKEN_COOKIE_NAME,
+  getRefreshTokenCookieDomain,
+  getRefreshTokenCookieSameSite,
+  getRefreshTokenExpiresIn,
+  isProduction,
+} from "../config/auth";
 import { requireAuth } from "../plugins/auth";
 import { loginSchema } from "../schemas/auth";
 import { login, logout, refresh } from "../services/auth";
@@ -9,8 +15,9 @@ import { parseBody } from "../utils/validation";
 function setRefreshCookie(reply: FastifyReply, refreshToken: string) {
   reply.setCookie(REFRESH_TOKEN_COOKIE_NAME, refreshToken, {
     httpOnly: true,
-    sameSite: "lax",
+    sameSite: getRefreshTokenCookieSameSite(),
     secure: isProduction(),
+    domain: getRefreshTokenCookieDomain(),
     path: "/api/v1/auth",
     expires: new Date(Date.now() + parseDurationToMs(getRefreshTokenExpiresIn())),
   });
@@ -19,8 +26,9 @@ function setRefreshCookie(reply: FastifyReply, refreshToken: string) {
 function clearRefreshCookie(reply: FastifyReply) {
   reply.clearCookie(REFRESH_TOKEN_COOKIE_NAME, {
     path: "/api/v1/auth",
-    sameSite: "lax",
+    sameSite: getRefreshTokenCookieSameSite(),
     secure: isProduction(),
+    domain: getRefreshTokenCookieDomain(),
   });
 }
 

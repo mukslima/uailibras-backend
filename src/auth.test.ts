@@ -103,6 +103,7 @@ test("auth and user administration", async (t) => {
     assert.ok(body.accessToken);
     assert.equal(body.user.id, admin.id);
     assert.equal(body.user.passwordHash, undefined);
+    assert.equal(body.user.role, "ADMIN");
     assert.match(extractCookie(response), /^uailibras_refresh_token=/);
 
     adminAccessToken = body.accessToken;

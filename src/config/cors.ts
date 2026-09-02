@@ -11,7 +11,10 @@ function parseOrigins(value: string | undefined) {
 }
 
 export function getAllowedAdminOrigins() {
-  const configuredOrigins = parseOrigins(process.env.ADMIN_CORS_ORIGINS);
+  const configuredOrigins = [
+    ...parseOrigins(process.env.CORS_ORIGINS),
+    ...parseOrigins(process.env.ADMIN_CORS_ORIGINS),
+  ];
 
   if (configuredOrigins.length > 0) {
     return configuredOrigins;
@@ -33,7 +36,7 @@ export function getCorsOptions(): FastifyCorsOptions {
         return;
       }
 
-      callback(new Error("Origin not allowed by CORS"), false);
+      callback(Object.assign(new Error("Origin not allowed by CORS"), { statusCode: 403 }), false);
     },
   };
 }

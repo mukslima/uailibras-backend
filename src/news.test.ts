@@ -212,6 +212,17 @@ test("editorial news workflow, visibility, taxonomy, and media upload", async (t
   });
 
   await t.test("AUTHOR edits own DRAFT, cannot edit someone else's, and REVIEWER cannot edit", async () => {
+    const adminDraftEdit = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/news/${newsId}`,
+      headers: authHeader(adminToken),
+      payload: {
+        summary: "Resumo alterado por admin em rascunho.",
+      },
+    });
+
+    assert.equal(adminDraftEdit.statusCode, 200);
+
     const ownEdit = await app.inject({
       method: "PATCH",
       url: `/api/v1/news/${newsId}`,
@@ -253,6 +264,32 @@ test("editorial news workflow, visibility, taxonomy, and media upload", async (t
     assert.equal(reviewerEdit.statusCode, 403);
   });
 
+  await t.test("admin detail scopes are preserved and REVIEWER cannot read third-party DRAFT", async () => {
+    const reviewerDraftDetail = await app.inject({
+      method: "GET",
+      url: `/api/v1/admin/news/${newsId}`,
+      headers: authHeader(reviewerToken),
+    });
+
+    assert.equal(reviewerDraftDetail.statusCode, 403);
+
+    const authorOwnDraftDetail = await app.inject({
+      method: "GET",
+      url: `/api/v1/admin/news/${newsId}`,
+      headers: authHeader(authorToken),
+    });
+
+    assert.equal(authorOwnDraftDetail.statusCode, 200);
+
+    const adminDraftDetail = await app.inject({
+      method: "GET",
+      url: `/api/v1/admin/news/${newsId}`,
+      headers: authHeader(adminToken),
+    });
+
+    assert.equal(adminDraftDetail.statusCode, 200);
+  });
+
   await t.test("AUTHOR submits news and unpublished statuses stay private", async () => {
     const submit = await app.inject({
       method: "POST",
@@ -262,6 +299,25 @@ test("editorial news workflow, visibility, taxonomy, and media upload", async (t
 
     assert.equal(submit.statusCode, 200);
     assert.equal(submit.json().status, "IN_REVIEW");
+
+    const adminInReviewEdit = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/news/${newsId}`,
+      headers: authHeader(adminToken),
+      payload: {
+        summary: "Resumo alterado por admin em revisao.",
+      },
+    });
+
+    assert.equal(adminInReviewEdit.statusCode, 200);
+
+    const reviewerInReviewDetail = await app.inject({
+      method: "GET",
+      url: `/api/v1/admin/news/${newsId}`,
+      headers: authHeader(reviewerToken),
+    });
+
+    assert.equal(reviewerInReviewDetail.statusCode, 200);
 
     for (const statusUrl of ["/api/v1/news", "/api/v1/news/news-test-festival-libras"]) {
       const publicResponse = await app.inject({
@@ -340,6 +396,17 @@ test("editorial news workflow, visibility, taxonomy, and media upload", async (t
     assert.equal(reject.json().status, "REJECTED");
     assert.equal(reject.json().reviews.some((review: { action: string }) => review.action === "REJECTED"), true);
 
+    const adminRejectedEdit = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/news/${newsId}`,
+      headers: authHeader(adminToken),
+      payload: {
+        summary: "Resumo alterado por admin apos rejeicao.",
+      },
+    });
+
+    assert.equal(adminRejectedEdit.statusCode, 200);
+
     const edit = await app.inject({
       method: "PATCH",
       url: `/api/v1/news/${newsId}`,
@@ -404,6 +471,17 @@ test("editorial news workflow, visibility, taxonomy, and media upload", async (t
     assert.equal(approve.json().status, "APPROVED");
     assert.equal(approve.json().approvedById, reviewer.id);
 
+    const adminApprovedEdit = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/news/${newsId}`,
+      headers: authHeader(adminToken),
+      payload: {
+        summary: "Resumo alterado por admin aprovado.",
+      },
+    });
+
+    assert.equal(adminApprovedEdit.statusCode, 200);
+
     const publish = await app.inject({
       method: "POST",
       url: `/api/v1/news/${newsId}/publish`,
@@ -414,6 +492,17 @@ test("editorial news workflow, visibility, taxonomy, and media upload", async (t
     assert.equal(publish.json().status, "PUBLISHED");
     assert.equal(publish.json().publishedById, reviewer.id);
     assert.ok(publish.json().publishedAt);
+
+    const adminPublishedEdit = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/news/${newsId}`,
+      headers: authHeader(adminToken),
+      payload: {
+        summary: "Tentativa indevida em noticia publicada.",
+      },
+    });
+
+    assert.equal(adminPublishedEdit.statusCode, 409);
   });
 
   await t.test("PUBLISHED appears publicly and ARCHIVED disappears", async () => {
@@ -432,7 +521,10 @@ test("editorial news workflow, visibility, taxonomy, and media upload", async (t
 
     assert.equal(detail.statusCode, 200);
     assert.equal(detail.json().id, newsId);
+    assert.equal(detail.json().author.email, undefined);
     assert.equal(detail.json().author.passwordHash, undefined);
+    assert.equal(detail.json().coverImage?.storageKey, undefined);
+    assert.equal(detail.json().reviews, undefined);
 
     const archive = await app.inject({
       method: "POST",
@@ -442,6 +534,17 @@ test("editorial news workflow, visibility, taxonomy, and media upload", async (t
 
     assert.equal(archive.statusCode, 200);
     assert.equal(archive.json().status, "ARCHIVED");
+
+    const adminArchivedEdit = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/news/${newsId}`,
+      headers: authHeader(adminToken),
+      payload: {
+        summary: "Tentativa indevida em noticia arquivada.",
+      },
+    });
+
+    assert.equal(adminArchivedEdit.statusCode, 409);
 
     const archivedDetail = await app.inject({
       method: "GET",

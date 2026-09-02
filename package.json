@@ -8,8 +8,14 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
-    "test": "node --require ./scripts/tsx-windows-fix.cjs --import tsx --test \"src/**/*.test.ts\"",
+    "test": "node scripts/run-tests.cjs \"src/**/*.test.ts\"",
+    "test:auth": "node scripts/run-tests.cjs src/auth.test.ts",
+    "test:cors": "node scripts/run-tests.cjs src/cors.test.ts",
+    "test:news": "node scripts/run-tests.cjs src/news.test.ts",
+    "test:featured": "node scripts/run-tests.cjs src/news-featured.test.ts",
     "prisma:generate": "prisma generate",
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:validate": "prisma validate",
     "prisma:studio": "prisma studio"
   },
   "prisma": {

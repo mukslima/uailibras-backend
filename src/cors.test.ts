@@ -5,7 +5,7 @@ import type { FastifyInstance } from "fastify";
 process.env.JWT_ACCESS_SECRET = "test-access-secret-at-least-32-characters";
 process.env.JWT_ACCESS_EXPIRES_IN = "15m";
 process.env.JWT_REFRESH_EXPIRES_IN = "7d";
-process.env.ADMIN_CORS_ORIGINS = "http://localhost:3000,https://painel.uailibras.com.br";
+process.env.CORS_ORIGINS = "http://localhost:3000,https://painel.uailibras.com.br";
 
 let app: FastifyInstance;
 
@@ -36,4 +36,20 @@ test("CORS preflight allows local admin origin with credentials", async () => {
   assert.equal(response.headers["access-control-allow-credentials"], "true");
   assert.match(String(response.headers["access-control-allow-methods"]), /POST/);
   assert.match(String(response.headers["access-control-allow-headers"]), /Content-Type/i);
+});
+
+test("CORS preflight rejects forbidden origin without allow-origin header", async () => {
+  const response = await app.inject({
+    method: "OPTIONS",
+    url: "/api/v1/auth/login",
+    headers: {
+      origin: "https://evil.example",
+      "access-control-request-method": "POST",
+      "access-control-request-headers": "content-type",
+    },
+  });
+
+  assert.equal(response.statusCode, 403);
+  assert.equal(response.headers["access-control-allow-origin"], undefined);
+  assert.equal(response.json().message, "Origin not allowed by CORS");
 });

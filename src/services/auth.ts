@@ -11,6 +11,10 @@ import {
 import { getPublicUserSelect } from "./users";
 
 const invalidCredentialsError = () => Object.assign(new Error("Invalid credentials"), { statusCode: 401 });
+const loginUserSelect = {
+  ...getPublicUserSelect(),
+  passwordHash: true,
+};
 
 export async function login(app: FastifyInstance, identifier: string, password: string) {
   const normalizedIdentifier = identifier.includes("@")
@@ -21,6 +25,7 @@ export async function login(app: FastifyInstance, identifier: string, password: 
     where: identifier.includes("@")
       ? { email: normalizedIdentifier }
       : { username: normalizedIdentifier },
+    select: loginUserSelect,
   });
 
   if (!user || !user.active) {
@@ -48,7 +53,10 @@ export async function login(app: FastifyInstance, identifier: string, password: 
     role: user.role,
   });
 
-  const { passwordHash: _passwordHash, ...safeUser } = user;
+  const safeUser = await prisma.user.findUniqueOrThrow({
+    where: { id: user.id },
+    select: getPublicUserSelect(),
+  });
 
   return {
     accessToken,
