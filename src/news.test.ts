@@ -290,6 +290,147 @@ test("editorial news workflow, visibility, taxonomy, and media upload", async (t
     assert.equal(adminDraftDetail.statusCode, 200);
   });
 
+  await t.test("admin news list gives REVIEWER all readable statuses unless a status is requested", async () => {
+    const draft = await prisma.news.create({
+      data: {
+        title: "News Test List Draft",
+        slug: `${testSlugPrefix}-list-draft`,
+        summary: "Resumo completo para listagem.",
+        content: "<p>Conteudo completo para listagem.</p>",
+        status: "DRAFT",
+        authorId: otherAuthor.id,
+        primaryCategoryId: category.id,
+        categories: {
+          create: {
+            categoryId: category.id,
+          },
+        },
+      },
+    });
+    const inReview = await prisma.news.create({
+      data: {
+        title: "News Test List Review",
+        slug: `${testSlugPrefix}-list-review`,
+        summary: "Resumo completo para listagem.",
+        content: "<p>Conteudo completo para listagem.</p>",
+        status: "IN_REVIEW",
+        authorId: otherAuthor.id,
+        primaryCategoryId: category.id,
+        categories: {
+          create: {
+            categoryId: category.id,
+          },
+        },
+      },
+    });
+    const approved = await prisma.news.create({
+      data: {
+        title: "News Test List Approved",
+        slug: `${testSlugPrefix}-list-approved`,
+        summary: "Resumo completo para listagem.",
+        content: "<p>Conteudo completo para listagem.</p>",
+        status: "APPROVED",
+        authorId: otherAuthor.id,
+        primaryCategoryId: category.id,
+        categories: {
+          create: {
+            categoryId: category.id,
+          },
+        },
+      },
+    });
+    const published = await prisma.news.create({
+      data: {
+        title: "News Test List Published",
+        slug: `${testSlugPrefix}-list-published`,
+        summary: "Resumo completo para listagem.",
+        content: "<p>Conteudo completo para listagem.</p>",
+        status: "PUBLISHED",
+        authorId: otherAuthor.id,
+        primaryCategoryId: category.id,
+        publishedById: reviewer.id,
+        publishedAt: new Date(),
+        categories: {
+          create: {
+            categoryId: category.id,
+          },
+        },
+      },
+    });
+    const archived = await prisma.news.create({
+      data: {
+        title: "News Test List Archived",
+        slug: `${testSlugPrefix}-list-archived`,
+        summary: "Resumo completo para listagem.",
+        content: "<p>Conteudo completo para listagem.</p>",
+        status: "ARCHIVED",
+        authorId: otherAuthor.id,
+        primaryCategoryId: category.id,
+        categories: {
+          create: {
+            categoryId: category.id,
+          },
+        },
+      },
+    });
+
+    const reviewerAll = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/news?pageSize=50",
+      headers: authHeader(reviewerToken),
+    });
+
+    assert.equal(reviewerAll.statusCode, 200);
+    const reviewerAllIds = new Set(reviewerAll.json().items.map((item: { id: string }) => item.id));
+    assert.equal(reviewerAllIds.has(draft.id), false);
+    assert.equal(reviewerAllIds.has(inReview.id), true);
+    assert.equal(reviewerAllIds.has(approved.id), true);
+    assert.equal(reviewerAllIds.has(published.id), true);
+    assert.equal(reviewerAllIds.has(archived.id), true);
+
+    const reviewerInReview = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/news?pageSize=50&status=IN_REVIEW",
+      headers: authHeader(reviewerToken),
+    });
+    assert.equal(reviewerInReview.statusCode, 200);
+    assert.equal(reviewerInReview.json().items.some((item: { id: string }) => item.id === inReview.id), true);
+    assert.equal(reviewerInReview.json().items.every((item: { status: string }) => item.status === "IN_REVIEW"), true);
+
+    const reviewerApproved = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/news?pageSize=50&status=APPROVED",
+      headers: authHeader(reviewerToken),
+    });
+    assert.equal(reviewerApproved.statusCode, 200);
+    assert.equal(reviewerApproved.json().items.some((item: { id: string }) => item.id === approved.id), true);
+    assert.equal(reviewerApproved.json().items.every((item: { status: string }) => item.status === "APPROVED"), true);
+
+    const reviewerDraft = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/news?pageSize=50&status=DRAFT",
+      headers: authHeader(reviewerToken),
+    });
+    assert.equal(reviewerDraft.statusCode, 200);
+    assert.equal(reviewerDraft.json().items.some((item: { id: string }) => item.id === draft.id), false);
+
+    const adminDraft = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/news?pageSize=50&status=DRAFT",
+      headers: authHeader(adminToken),
+    });
+    assert.equal(adminDraft.statusCode, 200);
+    assert.equal(adminDraft.json().items.some((item: { id: string }) => item.id === draft.id), true);
+
+    const authorAll = await app.inject({
+      method: "GET",
+      url: "/api/v1/admin/news?pageSize=50",
+      headers: authHeader(authorToken),
+    });
+    assert.equal(authorAll.statusCode, 200);
+    assert.equal(authorAll.json().items.some((item: { authorId: string }) => item.authorId === otherAuthor.id), false);
+  });
+
   await t.test("AUTHOR submits news and unpublished statuses stay private", async () => {
     const submit = await app.inject({
       method: "POST",

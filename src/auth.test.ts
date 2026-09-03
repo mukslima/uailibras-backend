@@ -298,4 +298,60 @@ test("auth and user administration", async (t) => {
 
     assert.equal(response.statusCode, 409);
   });
+
+  await t.test("ADMIN cannot downgrade or deactivate their own account", async () => {
+    const downgrade = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/users/${admin.id}`,
+      headers: authHeader(adminAccessToken),
+      payload: {
+        role: "AUTHOR",
+      },
+    });
+
+    assert.equal(downgrade.statusCode, 403);
+
+    const deactivate = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/users/${admin.id}`,
+      headers: authHeader(adminAccessToken),
+      payload: {
+        active: false,
+      },
+    });
+
+    assert.equal(deactivate.statusCode, 403);
+  });
+
+  await t.test("ADMIN can update another admin when another active admin remains and normal user changes still work", async () => {
+    const secondAdmin = await createTestUser("ADMIN", "second-admin");
+    const secondAdminLogin = await loginAs(secondAdmin.email);
+    assert.equal(secondAdminLogin.statusCode, 200);
+
+    const deactivateOther = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/users/${secondAdmin.id}`,
+      headers: authHeader(adminAccessToken),
+      payload: {
+        active: false,
+      },
+    });
+
+    assert.equal(deactivateOther.statusCode, 200);
+    assert.equal(deactivateOther.json().active, false);
+
+    const updateReviewer = await app.inject({
+      method: "PATCH",
+      url: `/api/v1/users/${reviewer.id}`,
+      headers: authHeader(adminAccessToken),
+      payload: {
+        role: "AUTHOR",
+        active: true,
+      },
+    });
+
+    assert.equal(updateReviewer.statusCode, 200);
+    assert.equal(updateReviewer.json().role, "AUTHOR");
+    assert.equal(updateReviewer.json().active, true);
+  });
 });

@@ -29,6 +29,6 @@ export async function userRoutes(app: FastifyInstance) {
     const params = parseBody(uuidParamSchema, request.params);
     const body = parseBody(updateUserSchema, request.body);
 
-    return updateUser(params.id, body);
+    return updateUser(params.id, body, request.currentUser!);
   });
 }

@@ -858,11 +858,15 @@ export async function getPublicNewsBySlug(slug: string) {
 }
 
 export async function listAdminNews(input: ListAdminNewsInput, user: EditorialUser) {
-  const where: Prisma.NewsWhereInput = {
-    status: input.status,
-    ...(user.role === "AUTHOR" ? { authorId: user.id } : {}),
-    ...(user.role === "REVIEWER" ? { status: input.status ?? "IN_REVIEW" } : {}),
-  };
+  const where: Prisma.NewsWhereInput =
+    user.role === "REVIEWER"
+      ? {
+          AND: [input.status ? { status: input.status } : {}, { status: { not: "DRAFT" } }],
+        }
+      : {
+          status: input.status,
+          ...(user.role === "AUTHOR" ? { authorId: user.id } : {}),
+        };
 
   const [items, total] = await prisma.$transaction([
     prisma.news.findMany({

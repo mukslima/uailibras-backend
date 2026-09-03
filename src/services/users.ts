@@ -19,6 +19,10 @@ type UpdateUserInput = {
   active?: boolean;
 };
 
+type ActingUser = {
+  id: string;
+};
+
 const publicUserSelect = {
   id: true,
   username: true,
@@ -58,6 +62,18 @@ function toConflictError(error: unknown) {
   throw error;
 }
 
+function forbidden(message: string) {
+  return Object.assign(new Error(message), { statusCode: 403 });
+}
+
+function conflict(message: string) {
+  return Object.assign(new Error(message), { statusCode: 409 });
+}
+
+function notFound() {
+  return Object.assign(new Error("User not found"), { statusCode: 404 });
+}
+
 export async function createUser(input: CreateUserInput) {
   const normalized = normalizeUserInput(input);
 
@@ -93,29 +109,70 @@ export async function getUserById(id: string) {
   });
 
   if (!user) {
-    throw Object.assign(new Error("User not found"), { statusCode: 404 });
+    throw notFound();
   }
 
   return user;
 }
 
-export async function updateUser(id: string, input: UpdateUserInput) {
+export async function updateUser(id: string, input: UpdateUserInput, actor: ActingUser) {
   const normalized = normalizeUserInput(input);
 
   try {
-    return await prisma.user.update({
-      where: { id },
-      data: {
-        ...normalized,
-        name: input.name?.trim(),
-        role: input.role,
-        active: input.active,
-      },
-      select: publicUserSelect,
+    return await prisma.$transaction(async (tx) => {
+      const existing = await tx.user.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          role: true,
+          active: true,
+        },
+      });
+
+      if (!existing) {
+        throw notFound();
+      }
+
+      if (actor.id === id && input.role && input.role !== "ADMIN") {
+        throw forbidden("Admins cannot change their own admin role");
+      }
+
+      if (actor.id === id && input.active === false) {
+        throw forbidden("Admins cannot deactivate their own account");
+      }
+
+      const removesActiveAdmin =
+        existing.role === "ADMIN" && existing.active && ((input.role && input.role !== "ADMIN") || input.active === false);
+
+      if (removesActiveAdmin) {
+        const activeAdminCount = await tx.user.count({
+          where: {
+            role: "ADMIN",
+            active: true,
+          },
+        });
+
+        if (activeAdminCount <= 1) {
+          throw conflict("At least one active admin must remain");
+        }
+      }
+
+      return tx.user.update({
+        where: { id },
+        data: {
+          ...normalized,
+          name: input.name?.trim(),
+          role: input.role,
+          active: input.active,
+        },
+        select: publicUserSelect,
+      });
+    }, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
-      throw Object.assign(new Error("User not found"), { statusCode: 404 });
+      throw notFound();
     }
 
     toConflictError(error);
