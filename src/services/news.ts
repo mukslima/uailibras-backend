@@ -1,6 +1,7 @@
 import { Prisma, type NewsStatus } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { sanitizeRichText } from "../utils/content";
+import { isRecordNotFoundError, isTransactionConflictError, isUniqueConstraintError } from "../utils/database-errors";
 import { normalizeSlug } from "../utils/normalize";
 import { findOrCreateTags } from "./tags";
 import { getPublicUserSelect, type PublicUser } from "./users";
@@ -134,6 +135,35 @@ const publicNewsSelect = {
   },
 } satisfies Prisma.NewsSelect;
 
+const adminNewsListSelect = {
+  id: true,
+  title: true,
+  slug: true,
+  summary: true,
+  status: true,
+  authorId: true,
+  approvedById: true,
+  publishedById: true,
+  primaryCategoryId: true,
+  coverImageId: true,
+  requestedFeaturedPosition: true,
+  featuredPosition: true,
+  publishedAt: true,
+  revisionOfId: true,
+  createdAt: true,
+  updatedAt: true,
+  author: {
+    select: safeUserSelect,
+  },
+  approvedBy: {
+    select: safeUserSelect,
+  },
+  publishedBy: {
+    select: safeUserSelect,
+  },
+  primaryCategory: true,
+} satisfies Prisma.NewsSelect;
+
 function forbidden() {
   return Object.assign(new Error("Forbidden"), { statusCode: 403 });
 }
@@ -230,14 +260,12 @@ async function buildRelations(input: NewsWriteInput) {
 }
 
 function handleNewsWriteError(error: unknown): never {
-  if (error instanceof Prisma.PrismaClientKnownRequestError) {
-    if (error.code === "P2002") {
-      throw Object.assign(new Error("News slug already exists"), { statusCode: 409 });
-    }
+  if (isUniqueConstraintError(error)) {
+    throw Object.assign(new Error("News slug already exists"), { statusCode: 409 });
+  }
 
-    if (error.code === "P2025") {
-      throw notFound();
-    }
+  if (isRecordNotFoundError(error)) {
+    throw notFound();
   }
 
   throw error;
@@ -340,12 +368,16 @@ async function runFeaturedTransaction<T>(operation: (tx: NewsTransaction) => Pro
         isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       });
     } catch (error) {
-      if (
-        attempt < 2 &&
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        (error.code === "P2002" || error.code === "P2034")
-      ) {
-        continue;
+      if (isUniqueConstraintError(error) || isTransactionConflictError(error)) {
+        if (attempt < 2) {
+          continue;
+        }
+
+        throw Object.assign(new Error("Could not apply featured position"), { statusCode: 409 });
+      }
+
+      if (isRecordNotFoundError(error)) {
+        throw notFound();
       }
 
       throw error;
@@ -876,7 +908,7 @@ export async function listAdminNews(input: ListAdminNewsInput, user: EditorialUs
       },
       skip: (input.page - 1) * input.pageSize,
       take: input.pageSize,
-      include: newsInclude,
+      select: adminNewsListSelect,
     }),
     prisma.news.count({ where }),
   ]);

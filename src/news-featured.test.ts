@@ -578,4 +578,71 @@ test("featured news rotation and permissions", async (t) => {
     assert.equal(detail.statusCode, 200);
     assert.equal(detail.json().featuredPosition, 1);
   });
+
+  await t.test("high contention for featured position returns conflict without duplicate positions", async () => {
+    for (let round = 1; round <= 5; round += 1) {
+      await cleanup();
+      const initial = [
+        await createPublishedNews(`contention-${round}-initial-1`, 1),
+        await createPublishedNews(`contention-${round}-initial-2`, 2),
+        await createPublishedNews(`contention-${round}-initial-3`, 3),
+      ];
+      const contenders = await Promise.all(
+        Array.from({ length: 5 }, (_, index) => createApprovedNews(`contention-${round}-candidate-${index + 1}`)),
+      );
+
+      const responses = await Promise.all(
+        contenders.map((item) =>
+          app.inject({
+            method: "POST",
+            url: `/api/v1/news/${item.id}/publish`,
+            headers: authHeader(reviewerToken),
+            payload: {
+              featuredPosition: 1,
+            },
+          }),
+        ),
+      );
+
+      const statusCodes = responses.map((response) => response.statusCode);
+      const statusSummary = {
+        200: statusCodes.filter((statusCode) => statusCode === 200).length,
+        409: statusCodes.filter((statusCode) => statusCode === 409).length,
+        500: statusCodes.filter((statusCode) => statusCode >= 500).length,
+      };
+      assert.equal(statusCodes.some((statusCode) => statusCode >= 500), false, `round ${round} must not return 500`);
+      assert.equal(
+        statusCodes.every((statusCode) => statusCode === 200 || statusCode === 409),
+        true,
+        `round ${round} should only return 200 or 409`,
+      );
+
+      const featured = await prisma.news.findMany({
+        where: {
+          id: {
+            in: [...initial, ...contenders].map((item) => item.id),
+          },
+          featuredPosition: {
+            not: null,
+          },
+        },
+        select: {
+          featuredPosition: true,
+        },
+        orderBy: {
+          featuredPosition: "asc",
+        },
+      });
+      assert.deepEqual(
+        featured.map((item) => item.featuredPosition),
+        [1, 2, 3],
+        `round ${round} must keep exactly one news item in each featured position`,
+      );
+      console.log(
+        `QA_FINAL_002_ROUND_${round}=200:${statusSummary[200]};409:${statusSummary[409]};500:${statusSummary[500]};positions:${featured
+          .map((item) => item.featuredPosition)
+          .join(",")}`,
+      );
+    }
+  });
 });

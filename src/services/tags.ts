@@ -1,6 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
-import { normalizeSlug } from "../utils/normalize";
+import { normalizeDisplayName, normalizeSlug } from "../utils/normalize";
 
 type CreateTagInput = {
   name: string;
@@ -37,7 +37,7 @@ export async function createTag(input: CreateTagInput) {
   try {
     return await prisma.tag.create({
       data: {
-        name: input.name.trim(),
+        name: normalizeDisplayName(input.name),
         slug: normalizeTagSlug(input),
       },
     });
@@ -47,7 +47,7 @@ export async function createTag(input: CreateTagInput) {
 }
 
 export async function findOrCreateTags(names: string[]) {
-  const uniqueNames = [...new Map(names.map((name) => [normalizeSlug(name), name.trim()])).entries()].filter(
+  const uniqueNames = [...new Map(names.map((name) => [normalizeSlug(name), normalizeDisplayName(name)])).entries()].filter(
     ([slug]) => slug,
   );
 

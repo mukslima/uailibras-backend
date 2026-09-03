@@ -800,15 +800,39 @@ test("editorial news workflow, visibility, taxonomy, and media upload", async (t
   });
 
   await t.test("tags are normalized/deduplicated", async () => {
-    const tags = await prisma.tag.findMany({
-      where: {
-        slug: {
-          in: ["news-test-libras", "news-test-acessibilidade"],
-        },
+    const spacedTag = await app.inject({
+      method: "POST",
+      url: "/api/v1/tags",
+      headers: authHeader(authorToken),
+      payload: {
+        name: "  News Test    Espacos   Internos  ",
       },
     });
 
-    assert.equal(tags.length, 2);
+    assert.equal(spacedTag.statusCode, 201);
+    assert.equal(spacedTag.json().name, "News Test Espacos Internos");
+    assert.equal(spacedTag.json().slug, "news-test-espacos-internos");
+
+    const tags = await prisma.tag.findMany({
+      where: {
+        OR: [
+          {
+            slug: {
+              in: ["news-test-libras", "news-test-acessibilidade"],
+            },
+          },
+          {
+            slug: "news-test-espacos-internos",
+          },
+        ],
+      },
+    });
+
+    assert.equal(tags.length, 3);
+    assert.equal(
+      tags.find((tag) => tag.slug === "news-test-espacos-internos")?.name,
+      "News Test Espacos Internos",
+    );
   });
 
   await t.test("media upload rejects invalid/oversized files and accepts allowed images", async () => {

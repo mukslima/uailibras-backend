@@ -12,13 +12,13 @@ DATABASE_URL=postgresql://...
 JWT_ACCESS_SECRET=valor-longo-e-aleatorio
 JWT_ACCESS_EXPIRES_IN=15m
 JWT_REFRESH_EXPIRES_IN=7d
-CORS_ORIGINS=https://uailibras.com.br,https://www.uailibras.com.br,https://painel.uailibras.com.br
+CORS_ORIGINS=https://URL-DO-FRONTEND,https://URL-DO-ADMIN
 CLOUDINARY_CLOUD_NAME=...
 CLOUDINARY_API_KEY=...
 CLOUDINARY_API_SECRET=...
 ```
 
-`ADMIN_CORS_ORIGINS` continua aceito como alias de compatibilidade. Para deploys em dominios diferentes que exijam cookie cross-site, configure `REFRESH_TOKEN_COOKIE_SAMESITE=none` somente com HTTPS. `REFRESH_TOKEN_COOKIE_DOMAIN` deve ficar vazio, exceto se houver necessidade real de compartilhar cookie entre subdominios.
+`ADMIN_CORS_ORIGINS` continua aceito como alias de compatibilidade. Na Fase 12, use as URLs HTTPS reais dos provedores. Para deploys em dominios diferentes que exijam cookie cross-site, configure `REFRESH_TOKEN_COOKIE_SAMESITE=none` somente com HTTPS. `REFRESH_TOKEN_COOKIE_DOMAIN` deve ficar vazio, exceto se houver necessidade real de compartilhar cookie entre subdominios.
 
 ## Build e start
 
@@ -90,4 +90,4 @@ Retorna somente estado operacional basico, sem detalhes sensiveis de infraestrut
 5. Validar `/health` e API publica.
 6. Configurar e subir admin com `NEXT_PUBLIC_API_URL`.
 7. Configurar e subir frontend publico com `UAILIBRAS_API_URL`.
-8. Apontar dominios/subdominios e validar login, noticias e paginas por slug.
+8. Validar login, noticias e paginas por slug nas URLs dos provedores. Dominio proprio pode ser configurado depois, se estiver disponivel.

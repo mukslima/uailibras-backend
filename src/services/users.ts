@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
+import { isRecordNotFoundError, isTransactionConflictError, isUniqueConstraintError } from "../utils/database-errors";
 import { normalizeEmail, normalizeUsername } from "../utils/normalize";
 import { hashPassword } from "../utils/password";
 
@@ -48,10 +49,6 @@ function normalizeUserInput<T extends { username?: string; email?: string }>(inp
     username: input.username ? normalizeUsername(input.username) : undefined,
     email: input.email ? normalizeEmail(input.email) : undefined,
   };
-}
-
-function isUniqueConstraintError(error: unknown) {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002";
 }
 
 function toConflictError(error: unknown) {
@@ -171,7 +168,11 @@ export async function updateUser(id: string, input: UpdateUserInput, actor: Acti
       isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
   } catch (error) {
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
+    if (isTransactionConflictError(error)) {
+      throw conflict("The user was updated concurrently. Try again.");
+    }
+
+    if (isRecordNotFoundError(error)) {
       throw notFound();
     }
 

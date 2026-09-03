@@ -71,6 +71,7 @@ const testArgs = [
   "--import",
   "tsx",
   "--test",
+  "--test-concurrency=1",
   ...(patterns.length > 0 ? patterns : ["src/**/*.test.ts"]),
 ];
 

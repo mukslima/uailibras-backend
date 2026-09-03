@@ -6,6 +6,10 @@ export function normalizeEmail(email: string) {
   return email.trim().toLowerCase();
 }
 
+export function normalizeDisplayName(value: string) {
+  return value.trim().replace(/\s+/g, " ");
+}
+
 export function normalizeSlug(value: string) {
   return value
     .trim()

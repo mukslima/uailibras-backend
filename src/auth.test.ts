@@ -354,4 +354,87 @@ test("auth and user administration", async (t) => {
     assert.equal(updateReviewer.json().role, "AUTHOR");
     assert.equal(updateReviewer.json().active, true);
   });
+
+  await t.test("concurrent demotion of exactly two active admins returns conflict instead of server error", async () => {
+    for (let round = 1; round <= 5; round += 1) {
+      await prisma.user.deleteMany({
+        where: {
+          email: {
+            endsWith: `.round-${round}${testEmailDomain}`,
+          },
+        },
+      });
+
+      const adminA = await createTestUser("ADMIN", `race-a.round-${round}`);
+      const adminB = await createTestUser("ADMIN", `race-b.round-${round}`);
+
+      await prisma.user.updateMany({
+        where: {
+          role: "ADMIN",
+          active: true,
+          id: {
+            notIn: [adminA.id, adminB.id],
+          },
+        },
+        data: {
+          active: false,
+        },
+      });
+
+      const activeAdminsBefore = await prisma.user.count({
+        where: {
+          role: "ADMIN",
+          active: true,
+        },
+      });
+      assert.equal(activeAdminsBefore, 2);
+
+      const [tokenA, tokenB] = await Promise.all([loginAs(adminA.email), loginAs(adminB.email)]).then((responses) =>
+        responses.map((response) => response.json().accessToken as string),
+      );
+
+      const responses = await Promise.all([
+        app.inject({
+          method: "PATCH",
+          url: `/api/v1/users/${adminB.id}`,
+          headers: authHeader(tokenA),
+          payload: {
+            role: "AUTHOR",
+          },
+        }),
+        app.inject({
+          method: "PATCH",
+          url: `/api/v1/users/${adminA.id}`,
+          headers: authHeader(tokenB),
+          payload: {
+            role: "AUTHOR",
+          },
+        }),
+      ]);
+
+      const statusCodes = responses.map((response) => response.statusCode).sort();
+      assert.deepEqual(statusCodes, [200, 409], `round ${round} should have one winner and one conflict`);
+
+      const activeAdminsAfter = await prisma.user.count({
+        where: {
+          role: "ADMIN",
+          active: true,
+        },
+      });
+      assert.ok(activeAdminsAfter >= 1, `round ${round} must keep at least one active admin`);
+      console.log(
+        `QA_FINAL_001_ROUND_${round}=status:${statusCodes.join(",")};activeAdmins:${activeAdminsAfter}`,
+      );
+
+      await prisma.user.update({
+        where: {
+          id: admin.id,
+        },
+        data: {
+          role: "ADMIN",
+          active: true,
+        },
+      });
+    }
+  });
 });
